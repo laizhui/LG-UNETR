@@ -40,15 +40,13 @@ class ConvChanged(nn.Module):
         dropout: Union[Tuple, str, float] = None,
     ):
         super().__init__()
-        self.conv1 = get_conv_layer(
-            spatial_dims, in_channels, out_channels, kernel_size=kernel_size, stride=stride, dropout=dropout, conv_only=True,
-        )
+        self.conv = get_conv_layer(spatial_dims, in_channels, out_channels, kernel_size=kernel_size, stride=stride, dropout=dropout, conv_only=True)
+        self.norm = get_norm_layer(name=norm_name, spatial_dims=spatial_dims, channels=out_channels)
         self.lrelu = get_act_layer(name=act_name)
-        self.norm1 = get_norm_layer(name=norm_name, spatial_dims=spatial_dims, channels=out_channels)
 
     def forward(self, inp):
-        out = self.conv1(inp)
-        out = self.norm1(out)
+        out = self.conv(inp)
+        out = self.norm(out)
         out = self.lrelu(out)
         return out
 
@@ -58,181 +56,46 @@ class NiNBlock(nn.Module):
         spatial_dims: int,
         in_channels: int,
         out_channels: int,
-        kernel_size: Union[Sequence[int], int],
-        stride: Union[Sequence[int], int],
         norm_name: Union[Tuple, str],
         act_name: Union[Tuple, str] = ("leakyrelu", {"inplace": True, "negative_slope": 0.01}),
         dropout: Union[Tuple, str, float] = None,
     ):
         super().__init__()
-        self.conv1 = get_conv_layer(
-            spatial_dims, in_channels, out_channels, kernel_size=3, stride=1, dropout=dropout, conv_only=True,
-        )
-        self.conv2 = get_conv_layer(
-            spatial_dims, out_channels, out_channels, kernel_size=1, stride=1, dropout=dropout, conv_only=True
-        )
-        self.conv3 = get_conv_layer(
-            spatial_dims, out_channels, out_channels, kernel_size=1, stride=1, dropout=dropout, conv_only=True
-        )
-        self.lrelu = get_act_layer(name=act_name)
-        self.norm1 = get_norm_layer(name=norm_name, spatial_dims=spatial_dims, channels=out_channels)
-        self.norm2 = get_norm_layer(name=norm_name, spatial_dims=spatial_dims, channels=out_channels)
-        self.norm3 = get_norm_layer(name=norm_name, spatial_dims=spatial_dims, channels=out_channels)
-
+        self.conv1 = ConvChanged(spatial_dims, in_channels, out_channels, kernel_size=3, stride=1, norm_name=norm_name)
+        self.conv2 = ConvChanged(spatial_dims, out_channels, out_channels, kernel_size=1, stride=1, norm_name=norm_name)
+        self.conv3 = ConvChanged(spatial_dims, out_channels, out_channels, kernel_size=1, stride=1, norm_name=norm_name)
 
     def forward(self, inp):
         residual = inp
         out = self.conv1(inp)
-        out = self.norm1(out)
-        out = self.lrelu(out)
         out = self.conv2(out)
-        out = self.norm2(out)
-        out = self.lrelu(out)
         out = self.conv3(out)
-        out = self.norm3(out)
-        out = self.lrelu(out)
         out = out + residual
-        
         return out
 
-class NiNChanged(nn.Module):
+class SMA(nn.Module):
     def __init__(
         self,
         spatial_dims: int,
         in_channels: int,
         out_channels: int,
-        kernel_size: Union[Sequence[int], int],
-        stride: Union[Sequence[int], int],
         norm_name: Union[Tuple, str],
-        act_name: Union[Tuple, str] = ("leakyrelu", {"inplace": True, "negative_slope": 0.01}),
         dropout: Union[Tuple, str, float] = None,
-    ):
-        super().__init__()
-        self.conv1 = get_conv_layer(
-            spatial_dims, in_channels, out_channels, kernel_size=3, stride=1, dropout=dropout, conv_only=True,
-        )
-        self.conv2 = get_conv_layer(
-            spatial_dims, out_channels, out_channels, kernel_size=1, stride=1, dropout=dropout, conv_only=True
-        )
-        self.lrelu = get_act_layer(name=act_name)
-        self.norm1 = get_norm_layer(name=norm_name, spatial_dims=spatial_dims, channels=out_channels)
-        self.norm2 = get_norm_layer(name=norm_name, spatial_dims=spatial_dims, channels=out_channels)
+    ) -> None:
 
+        super().__init__()
+        self.conv1 = get_conv_layer(spatial_dims, in_channels, out_channels=3, kernel_size=1, stride=1, dropout=dropout, conv_only=True)
+        self.conv2 = get_conv_layer(spatial_dims, in_channels, out_channels=3, kernel_size=1, stride=1, dropout=dropout, conv_only=True)
+        self.conv3 = get_conv_layer(spatial_dims, in_channels, out_channels, kernel_size=1, stride=1, dropout=dropout, conv_only=True)
+        self.norm = get_norm_layer(name=norm_name, spatial_dims=spatial_dims, channels=in_channels)
+        self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, inp):
         residual = inp
-        out = self.conv1(inp)
-        out = self.norm1(out)
-        out = self.lrelu(out)
-        out = self.conv2(out)
-        out = self.norm2(out)
-        out = self.lrelu(out)
-        out = out + residual
-        
-        return out
-
-class SMABlock(nn.Module):
-    def __init__(
-        self,
-        spatial_dims: int,
-        in_channels: int,
-        out_channels: int,
-        elength: int,
-        norm_name: Union[Tuple, str],
-    ) -> None:
-
-        super().__init__()
-        self.transp_conv1 = get_conv_layer(
-            spatial_dims, in_channels, out_channels, kernel_size=2, stride=2, conv_only=True, is_transposed=True,
-        )          
-
-        self.conv1 = ConvChanged(  # type: ignore
-            spatial_dims, out_channels, out_channels=3, kernel_size=1, stride=1, norm_name=norm_name,
-        )
-
-        self.conv2 = ConvChanged(  # type: ignore
-            spatial_dims, out_channels, out_channels=3, kernel_size=1, stride=1, norm_name=norm_name,
-        )
-
-        self.conv3 = ConvChanged(  # type: ignore
-            spatial_dims, out_channels, out_channels, kernel_size=1, stride=1, norm_name=norm_name,
-        )
-
-        self.conv4 = NiNBlock(
-            spatial_dims, out_channels, out_channels, kernel_size=3, stride=1, norm_name=norm_name,
-        )
-
-        self.softmax = nn.Softmax(dim=-1)
-
-        self.D = elength
-        self.H = elength
-        self.W = elength
-
-    def forward(self, inp, skip):
-        # number of channels for skip should equals to out_channels
-        residual = self.transp_conv1(inp)
-        yq = self.conv1(skip)
-        yk = self.conv2(residual)
-        yv = self.conv3(residual)
-
-        B1, C1, D1, H1, W1 = yq.shape
-        B1, C1, D1, H1, W1 = yk.shape
-        B2, C2, D2, H2, W2 = yv.shape
-
-        yq = rearrange(yq, "B1 C1 D1 H1 W1 -> B1 D1 H1 W1 C1")
-        yq = F.layer_norm(yq, [C1])
-        yq = yq.reshape(B1, D1*H1*W1, C1)
-
-        yk = rearrange(yk, "B1 C1 D1 H1 W1 -> B1 D1 H1 W1 C1")
-        yk = F.layer_norm(yk, [C1])
-        yk = yk.reshape(B1, D1*H1*W1, C1)
-
-        yv = rearrange(yv, "B2 C2 D2 H2 W2 -> B2 D2 H2 W2 C2")
-        yv = F.layer_norm(yv, [C2])
-        yv = yv.reshape(B2, D2*H2*W2, C2)
-        
-        seg_score = yq @ yk.transpose(-2, -1)
-        seg_score = self.softmax(seg_score)
-        feats = seg_score @ yv
-        feats = feats.reshape(B2, C2, D2, H2, W2)       
-        out = feats + residual
-        out = self.conv4(out)
-        return out
-
-class SMAChanged(nn.Module):
-    def __init__(
-        self,
-        spatial_dims: int,
-        in_channels: int,
-        out_channels: int,
-        elength: int,
-        norm_name: Union[Tuple, str],
-    ) -> None:
-
-        super().__init__()
-        self.conv1 = ConvChanged(  # type: ignore
-            spatial_dims, out_channels, out_channels=3, kernel_size=1, stride=1, norm_name=norm_name,
-        )
-
-        self.conv2 = ConvChanged(  # type: ignore
-            spatial_dims, out_channels, out_channels=3, kernel_size=1, stride=1, norm_name=norm_name,
-        )
-
-        self.conv3 = ConvChanged(  # type: ignore
-            spatial_dims, out_channels, out_channels, kernel_size=1, stride=1, norm_name=norm_name,
-        )
-
-        self.softmax = nn.Softmax(dim=-1)
-
-        self.D = elength
-        self.H = elength
-        self.W = elength
-
-    def forward(self, inp):
-        # number of channels for skip should equals to out_channels
-        yq = self.conv1(inp)
-        yk = self.conv2(inp)
-        yv = self.conv3(inp)
+        inpu = self.norm(inp)
+        yq = self.conv1(inpu)
+        yk = self.conv2(inpu)
+        yv = self.conv3(inpu)
 
         B1, C1, D1, H1, W1 = yq.shape
         B1, C1, D1, H1, W1 = yk.shape
@@ -254,9 +117,78 @@ class SMAChanged(nn.Module):
         seg_score = self.softmax(seg_score)
         feats = seg_score @ yv
         feats = feats.reshape(B2, C2, D2, H2, W2)
-        return feats
+        out = feats + residual
+        return out
 
-class LGUNETR(nn.Module):
+class UnetrUpBlockChanged(nn.Module):
+    def __init__(
+        self,
+        spatial_dims: int,
+        in_channels: int,
+        out_channels: int,
+        elength: int,
+        norm_name: Union[Tuple, str],
+        dropout: Union[Tuple, str, float] = None,
+    ) -> None:
+
+        super().__init__()
+        self.transp_conv = get_conv_layer(spatial_dims, in_channels, out_channels, kernel_size=2, stride=2, conv_only=True, is_transposed=True)
+        self.conv1 = ConvChanged(spatial_dims, in_channels, out_channels, kernel_size=3, stride=1, norm_name=norm_name)
+        self.conv2 = ConvChanged(spatial_dims, out_channels, out_channels, kernel_size=3, stride=1, norm_name=norm_name)
+        self.conv3 = ConvChanged(spatial_dims, in_channels, out_channels, kernel_size=1, stride=1, norm_name=norm_name)
+        self.convq = get_conv_layer(spatial_dims, out_channels, out_channels=3, kernel_size=1, stride=1, dropout=dropout, conv_only=True)
+        self.convk = nn.Conv1d(out_channels, 3, 1)
+        self.convv = nn.Conv1d(out_channels, out_channels, 1)
+        self.linear = nn.Linear(elength*elength*elength, 128)
+        self.drop = nn.Dropout(0.25)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, inp, skip):
+        out = self.transp_conv(inp)
+        out = torch.cat((out, skip), dim=1)
+        
+        spat_info = self.conv1(out)
+        spat_info = self.conv2(spat_info)
+        residual = spat_info
+    
+        chan_info = self.conv3(out)
+        chan_info = self.drop(chan_info)
+
+        B, C, D, H, W = chan_info.shape
+        chan_info = chan_info.reshape(B, C, D*H*W)
+        chan_info = self.linear(chan_info)
+
+        yq = self.convq(spat_info)
+        yk = self.convk(chan_info)
+        yv = self.convv(chan_info)
+
+        B1, C1, D1, H1, W1 = yq.shape
+        B2, C2, N2 = yk.shape
+        B3, C3, N3 = yv.shape
+
+        yq = rearrange(yq, "B1 C1 D1 H1 W1 -> B1 D1 H1 W1 C1")
+        yq = F.layer_norm(yq, [C1])
+        yq = yq.reshape(B1, D1*H1*W1, C1)
+        
+        yk = yk.reshape(B2, N2, C2)
+        yk = F.layer_norm(yk, [C2])
+
+        yv = yv.reshape(B3, N3, C3)
+        yv = F.layer_norm(yv, [C3])
+        
+        seg_score = yq @ yk.transpose(-2, -1)
+        seg_score = self.softmax(seg_score)
+        feats = seg_score @ yv
+        feats = feats.reshape(B, C, D, H, W)
+        output = feats + residual
+        return output
+
+class SwinUNETR(nn.Module):
+    """
+    Swin UNETR based on: "Hatamizadeh et al.,
+    Swin UNETR: Swin Transformers for Semantic Segmentation of Brain Tumors in MRI Images
+    <https://arxiv.org/abs/2201.01266>"
+    """
 
     def __init__(
         self,
@@ -307,7 +239,7 @@ class LGUNETR(nn.Module):
 
         img_size = ensure_tuple_rep(img_size, spatial_dims)
         patch_size = ensure_tuple_rep(2, spatial_dims)
-        window_size = ensure_tuple_rep(7, spatial_dims)
+        window_size = ensure_tuple_rep(8, spatial_dims)
 
         if not (spatial_dims == 2 or spatial_dims == 3):
             raise ValueError("spatial dimension should be 2 or 3.")
@@ -362,8 +294,6 @@ class LGUNETR(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=feature_size,
             out_channels=feature_size,
-            kernel_size=3,
-            stride=1,
             norm_name=norm_name,
         )
 
@@ -371,79 +301,59 @@ class LGUNETR(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=2 * feature_size,
             out_channels=2 * feature_size,
-            kernel_size=3,
-            stride=1,
             norm_name=norm_name,
         )
 
-        self.encoder4 = NiNChanged(
+        self.encoder4 = NiNBlock(
             spatial_dims=spatial_dims,
             in_channels=4 * feature_size,
             out_channels=4 * feature_size,
-            kernel_size=3,
-            stride=1,
             norm_name=norm_name,
         )
 
-        self.encoder5 = NiNChanged(
+        self.encoder5 = NiNBlock(
             spatial_dims=spatial_dims,
             in_channels=8 * feature_size,
             out_channels=8 * feature_size,
-            kernel_size=3,
-            stride=1,
-            norm_name=norm_name,
-        )        
-
-        self.encoder6 = NiNChanged(
-            spatial_dims=spatial_dims,
-            in_channels=16 * feature_size,
-            out_channels=16 * feature_size,
-            kernel_size=3,
-            stride=1,
             norm_name=norm_name,
         )
 
-        self.bottleneck = SMAChanged(
+        self.bottleneck = SMA(
             spatial_dims=spatial_dims,
             in_channels=feature_size * 16,
             out_channels=feature_size * 16,
             norm_name=norm_name,
-            elength=4,
         )
 
-        self.decoder5 = SMABlock(
+        self.decoder5 = UnetrUpBlockChanged(
             spatial_dims=spatial_dims,
             in_channels=feature_size * 16,
             out_channels=feature_size * 8,
             norm_name=norm_name,
-            elength=4,
+            elength=8,
         )
 
-        self.decoder4 = SMABlock(
+        self.decoder4 = UnetrUpBlockChanged(
             spatial_dims=spatial_dims,
             in_channels=feature_size * 8,
             out_channels=feature_size * 4,
             norm_name=norm_name,
-            elength=8,
+            elength=16,
         )
 
-        self.decoder3 = UnetrUpBlock(
+        self.decoder3 = UnetrUpBlockChanged(
             spatial_dims=spatial_dims,
             in_channels=feature_size * 4,
             out_channels=feature_size * 2,
-            kernel_size=3,
-            upsample_kernel_size=2,
             norm_name=norm_name,
-            res_block=True,
+            elength=32,
         )
-        self.decoder2 = UnetrUpBlock(
+        self.decoder2 = UnetrUpBlockChanged(
             spatial_dims=spatial_dims,
             in_channels=feature_size * 2,
             out_channels=feature_size,
-            kernel_size=3,
-            upsample_kernel_size=2,
             norm_name=norm_name,
-            res_block=True,
+            elength=64,
         )
 
         self.decoder1 = UnetrUpBlock(
@@ -517,9 +427,8 @@ class LGUNETR(nn.Module):
         enc2 = self.encoder3(hidden_states_out[1])
         enc3 = self.encoder4(hidden_states_out[2])
         enc4 = self.encoder5(hidden_states_out[3])
-        enc5 = self.encoder6(hidden_states_out[4])
 
-        dec4 = self.bottleneck(enc5)
+        dec4 = self.bottleneck(hidden_states_out[4])
         dec3 = self.decoder5(dec4, enc4)
         dec2 = self.decoder4(dec3, enc3)
         dec1 = self.decoder3(dec2, enc2)
